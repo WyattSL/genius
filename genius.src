@@ -1,0 +1,1239 @@
+Shell = get_shell();
+Computer = Shell.host_computer;
+Metaxploit = include_lib("/lib/metaxploit.so");
+Crypto = include_lib("/lib/crypto.so");
+prompt = @user_input
+
+if not Metaxploit then
+	Metaxploit = include_lib(parent_path(program_path)+"/metaxploit.so")
+	if not Metaxploit then
+		exit("Failed to find Metaxploit in /lib or " + parent_path(program_path) + ".")
+	end if
+end if
+
+Version = 10.92
+
+globals.args = {}
+globals.skip = false
+for v in params
+	if globals.skip != 0 then
+		globals.args[globals.skip] = v
+		globals.skip = 0
+	else if v.indexOf("+") == 0 then
+		o = v.remove("+")
+		globals.skip = o
+	else if v.indexOf("-") == 0 then
+		o = v.remove("-")
+		globals.args[o] = true
+	end if
+end for
+
+random = function(min=0, max=10)
+	r = range(min, max)
+	r.shuffle
+	return r.pull
+end function
+
+stringify = function(List) // I went from 115 lines of code, to 15.
+	debug("Stringify: " + List)
+	X = List.join(",")
+	debug("Output: " + X)
+	return X
+end function
+
+parse = function(String)
+	debug("Parse: " + String)
+	X = String.split(",")
+	debug("Output: " + X)
+	return X
+end function
+
+format = function(Obj) // turns a map into text. Does not support maps within maps.
+	debug("Format: " + Obj)
+	Output = ""
+	for i in Obj
+		k = i.key
+		v = i.value
+		t = typeof(v)
+		if t == "list" then
+			Output = Output+k+"=["+stringify(v)+"]"+";"
+		else
+			Output = Output+k+"="+v+";"
+		end if
+	end for
+	return Output
+end function
+
+unformat = function(String)
+	debug("Unformat: " + String)
+	Output = {}
+	S = String.split(";")
+	for i in S
+		if S[i].len > 0 then
+			if S[i].indexOf("=[") then
+				Output[S[i].split("=")[0]] = parse(S[i].split("=[")[1].split("]")[0])
+			else if S[i].indexOf("=") then
+				Output[S[i].split("=")[0]] = S[i].split("=")[1]
+			else
+				err("Improper formatting: " + S[i])
+			end if
+		else
+			err("Improper length: " + S[i])
+		end if
+	end for
+	return Output
+end function
+
+append = function(File, data)
+	return File.set_content(File.content+"\n"+data)
+end function
+
+globals.Configs = {}
+
+Configs["showExploitRequirements"] = "0"
+Configs["changePasswords"] = "8718"
+
+globals.Database = {}
+
+THEME = {}
+THEME["text"] = "<color=#FF00FF>"
+THEME["cmd"] = "<color=#0FF0FF>"
+THEME["log"] = "<color=#FF00FF>"
+THEME["debug"] = "<color=#FF0FF0>"
+THEME["error"] = "<color=#FF0000>"
+THEME["warn"] = "<color=#FFFF00>"
+THEME["dir"] = "<color=#00FF00>"
+THEME["file"] = "<color=#0FFFF0>"
+THEME["root"] = "<color=#9F1000>"
+
+text = function(msg)
+	if msg then
+		msg=msg.replace("root", THEME.root+"root"+THEME.text)
+	end if
+	print(THEME.text+" "+msg)
+end function
+
+log = function(msg)
+	if msg then
+		msg=msg.replace("root", THEME.root+"root"+THEME.text)
+	end if
+	print(THEME.log+" "+msg)
+end function
+
+warn = function(msg)
+	if msg then
+		msg=msg.replace("root", THEME.root+"root"+THEME.text)
+	end if
+	print(THEME.warn+" "+msg)
+end function
+
+err = function(msg, cb)
+	if msg then
+		msg=msg.replace("root", THEME.root+"root"+THEME.text)
+	end if
+	print(THEME.error+" "+msg)
+	cb()
+end function
+
+debug = function(msg)
+	if args.hasIndex("debug") then
+		print(THEME.debug+" [D] "+msg)
+	end if
+end function
+
+globals.Username = ""
+globals.isBypass = false
+
+x = "133.31.44.141"
+y = "root"
+z = "3048814903"
+if args.hasIndex("forceip") then
+	x = args["forceip"]
+end if
+if args.hasIndex("forceuser") then
+	y = args["forceuser"]
+end if
+if args.hasIndex("forcepass") then
+	z = args["forcepass"]
+end if
+PC = Shell.connect_service(x, 22, y, z)
+if (not args.hasIndex("bypass") or args["bypass"] != "5249") and not PC then
+	err("Unable to connect to the Genius Blackbox. Please try again later, or DM WyattL#3477.")
+		exit()
+else if args.hasIndex("bypass") and args["bypass"] == "5249" then
+	log("Override successful. Your username has been set to Bypass.")
+  globals.isBypass = true
+	globals.Username = "BYPASS"
+	globals.Premium = 1
+end if
+
+if PC and PC.host_computer.File("/root/genius") then
+	if PC.host_computer.File("/root/version.txt") then
+		TV = PC.host_computer.File("/root/version.txt").content
+		if TV > Version then
+			warn("Please wait while Genius updates...")
+			debug("SCP Returns: " + PC.scp("/root/genius", parent_path(program_path), Shell))
+			text("Genius has updated successfully.")
+			Shell.launch(program_path, params.join(" "))
+			exit()
+		end if
+	end if
+end if
+
+MOTD = ""
+
+if PC and PC.host_computer.File("/root/MOTD.txt") then
+	MOTD = PC.host_computer.File("/root/MOTD.txt").content
+end if
+
+LoadDatabase = function()
+	Output = {}
+	debug("Loading database...")
+	if PC and not args.hasIndex("nodb") then
+		libs = PC.host_computer.File("/root/Exploits/").get_folders
+		for l in libs
+			Output[l.name.replace("Z","_")] = {}
+			versions = l.get_files
+			for v in versions
+				Output[l.name.replace("Z","_")][v.name] = {}
+				debug("81: \n" + Output)
+				X = parse(v.content)
+				for y in X
+					Output[l.name.replace("Z","_")][v.name][y.split(":")[0]] = y.split(":")[1]
+				end for
+			end for
+		end for
+		globals.Database = Output
+		return globals.Database
+	else
+		debug("Database load failed! Failed to connect.")
+	end if
+end function
+
+SaveDatabase = function()
+	debug("Saving database...")
+	if PC and not args.hasIndex("nodb") then
+		for i in globals.Database
+			K = i.key
+			V = i.value
+			debug("I: " + i)
+			debug("I Key: " + K)
+			debug("I Value: " + V)
+			for x in V
+				debug("X: " + x)
+				debug("X Key: " + x.key)
+				debug("X Value: " + x.value)
+				debug(PC.host_computer.create_folder("/root/Exploits",K.replace("_","Z")))
+				debug(PC.host_computer.touch("/root/Exploits/"+K.replace("_","Z"),x.key))
+				DBF = PC.host_computer.File("/root/Exploits/"+K.replace("_","Z")+"/"+x.key)
+				debug("DBF: " + DBF)
+				Y = []
+				for Z in globals.Database[K][x.key]
+					Y.push(Z.key + ":" + Z.value)
+				end for
+				DBF.set_content(stringify(Y))
+			end for
+		end for
+	else
+		debug("Database save failed! Failed to connect.")
+	end if
+end function
+
+LoadConfig = function()
+	ConfigFile = PC.host_computer.File("/root/Users/"+globals.Username+"/config")
+	if not ConfigFile then
+		return
+	end if
+	Configs = unformat(ConfigFile.content)
+end function
+
+SaveConfig = function()
+	ConfigFile = PC.host_computer.File("/root/Users/"+globals.Username+"/config")
+	if not ConfigFile then
+		PC.host_computer.touch("/root/Users/"+globals.Username,"config")
+		ConfigFile = PC.host_computer.File("/root/Users/"+globals.Username+"/config")
+		if not ConfigFile then
+			return
+		end if
+	end if
+	ConfigFile.set_content(format(Configs))
+end function
+
+if not args.hasIndex("nodb") then
+	LoadDatabase()
+end if
+
+if not args.hasIndex("noconfig") then
+	LoadConfig()
+end if
+
+Login = function()
+  if globals.isBypass then
+    Home()
+	else
+		Email = user_mail_address
+		debug("Defined Email: " + Email)
+		if not Email and Computer.File("/home/"+active_user+"/Config/Mail.txt") then
+			Email = Computer.File("/home/"+active_user+"/Config/Mail.txt").content.split(":")[0]
+			debug("Email found in Home Config!")
+		end if
+		if not Email and Computer.File("/"+active_user+"/Config/Mail.txt") then
+			Email = Computer.File("/"+active_user+"/Config/Mail.txt").content.split(":")[0]
+			debug("Email found in Root Config!")
+		end if
+		if not Email then
+			err("Please open Mail.exe at least once, then re-open genius.")
+			debug("no email!")
+			exit()
+		end if
+		globals.Email = Email
+		debug("Preparing to start!")
+		UF = PC.host_computer.File("/root/Users/" + md5(Email))
+		globals.Username = md5(Email)
+		globals.PrintUsername = Email.split("@")[0]
+		if not UF then
+			debug("PIRACY!!!!!!!!!!!!!!")
+			err("This is a pirated version of Genius. Please contact WyattL#3477 if you believe this is an error.")
+			exit()
+		else
+			PF = PC.host_computer.File("/root/Users/"+globals.Username+"/premium")
+			if PF and PF.content and PF.content == "1" then
+				debug("Premium!")
+				globals.Premium = 1
+			else
+				debug("Not premium!")
+				globals.Premium = 0
+			end if
+			debug("Starting home!")
+			Home()
+		end if
+	end if
+end function
+
+splash = function()
+	if not args.hasIndex("nosplash") then
+		debug("Displaying spash screen.")
+		print("\n") // The splash shouldn't be at the top of the screen.
+		tagtagtag1 = "<align=center><voffset=255>"
+		tagtagtag2 = "<align=center><voffset=465>"
+		print("<b><align=center>-------   ------   |\    |   -----   |   |   -------   |")
+		print("<b><align=center>|         |        | \   |     |     |   |   |         |")
+		print("<b><align=center>|   ---   |-----   |  \  |     |     |   |   -------   |")
+		print("<b><align=center>|     |   |        |   \ |     |     |   |         |   <color=#000000>*")
+		print("<b><align=center>-------   ------   |    \|   -----   -----   -------   @")
+		print("<b>"+tagtagtag1+"                   |\    |                             <color=#000000>*")
+		print("<b>"+tagtagtag1+"|         |        | \   |     |     |   |   |         |")
+		print("<b>"+tagtagtag1+"|         |        |  \  |     |     |   |   |         |")
+		print("<b>"+tagtagtag1+"|     |   |        |   \ |     |     |   |         |   |")
+		print("<b>"+tagtagtag1+"|     |   |        |    \|     |     |   |         |   <color=#000000>*")
+		print(" ")
+		print("<align=center><b>Version " + Version)
+		print("<align=center><b><u>By WyattL")
+		print(" ")
+	else
+		debug("Not displaying splash.")
+	end if
+end function
+
+CheckForLib = function(Object) // This will download libs that I don't have to the Genius server.
+  return // not yet finished
+  PCS = PC
+  PC = PC.host_computer
+  warn("Please wait...")
+  if typeof(Object) == "shell" and Object.host_computer.File("/lib").hasPermission("r") then // Yay! This is simple.
+    for File in Files
+      Lib = Metaxploit.load()
+      if not PC.File("/root/Libs/" + Lib.lib_name) then
+        PC.create_folder("/root/Libs/" + Lib.lib_name)
+      end if
+      Target = "/root/Libs/"+Lib.lib_name+"/"+Lib.version
+      if not PC.File(Target) then
+        Object.scp("/lib/" + File)
+      end if
+    end for
+  else if typeof(Object) == "computer" then // This is a bit harder.
+
+  else if typeof(Object == "file") then
+
+  end if
+end function
+
+globals.remotePath = "/"
+
+CCMDS = {}
+SCMDS = {}
+FCMDS = {}
+
+makeFileDir = function(File, dir)
+	while File.path != "/"
+		File = File.parent
+	end while
+	if dir.indexOf("/") == 0 then
+		dir.remove("/")
+	end if
+	S = dir.split("/")
+	for s in S
+		F = File.get_folders
+		if F.hasIndex(s) then
+			File = F[s]
+		else
+			return 0
+		end if
+	end for
+end function
+
+cd = function(Obj, path)
+	if path.indexOf("/") == 0 then
+		globals.remotePath = ""
+	end if
+	if path == ".." then
+		globals.remotePath = parent_path(globals.remotePath)
+		return
+	else
+		if typeof(Obj) == "shell" then
+			F = Obj.host_computer.File(globals.remotePath+path)
+			if not F then
+				print("File not found.")
+			else if not F.is_folder then
+				print("File is not a folder!")
+			else
+				globals.remotePath = globals.remotePath+path+"/"
+			end if
+		else if typeof(Obj) == "computer" then
+			F = Obj.File(globals.remotePath+path)
+			if not F then
+				print("File not found.")
+			else if not F.is_folder then
+				print("File is not a folder!")
+			else
+				globals.remotePath = globals.remotePath+path+"/"
+			end if
+		else if typeof(Obj) == "file" then // this is a tad bit more complicated
+			Fs = makeFileDir(Obj, "/").get_folders
+			if not Fs or not Fs.indexOf(path) then
+				err("File not found.")
+			else
+				globals.remotePath = Fs.path + "/" + path
+				return Fs[path]
+			end if
+		else
+			err("Unrecognized object type: " + typeof(Obj) + " data " + Obj)
+		end if
+	end if
+end function
+
+CCMDS["cd"] = @cd
+SCMDS["cd"] = @cd
+FCMDS["cd"] = @cd
+
+fperms = function(F)
+	M = ""
+	if F.has_permission("r") then
+		M = "r"
+	else
+		M = "-"
+	end if
+	if F.has_permission("w") then
+		M = M+"w"
+	else
+		M = M+"-"
+	end if
+	if F.has_permission("x") then
+		M = M+"x"
+	else
+		M = M+"-"
+	end if
+	return M
+end function
+
+ls = function(Obj, t)
+	if t then
+		cd(Obj, t)
+	end if
+	X = Obj
+	if typeof(Obj) == "shell" then
+		X = Obj.host_computer.File(globals.remotePath)
+	else if typeof(Obj) == "computer" then
+		X = Obj.File(globals.remotePath)
+	else if typeof(Obj) == "file" then
+		X = makeFileDir(Obj, globals.remotePath)
+	end if
+	if not X then
+		err("Invalid path.")
+	else
+		Files = X.get_folders
+		Files=Files+X.get_files
+		for F in Files
+			if F.is_folder then
+				text(fperms(F)+THEME.dir.replace("root","r<v>oot")+"  " + F.name)
+			else
+				text(fperms(F)+THEME.file+"  "+F.name)
+			end if
+		end for
+	end if
+	if t then
+		cd(Obj, "..")
+	end if
+end function
+
+SCMDS["ls"] = @ls
+CCMDS["ls"] = @ls
+FCMDS["ls"] = @ls
+
+cat = function(Obj, file)
+	Z = globals.remotePath
+	if file.indexOf("/") then
+		S = slice(file, 0, file.lastIndexOf("/"))
+		cd(Obj, S)
+	end if
+	if typeof(Obj) == "shell" then
+		X = Obj.host_computer.File(globals.remotePath+file)
+	else if typeof(Obj) == "computer" then
+		X = Obj.File(globals.remotePath+file)
+	else
+		Y = makeFileDir(Obj, globals.remotePath).get_files
+		if Y.hasIndex(file) then
+			X = Y[file]
+		else
+			err("File not found.")
+		end if
+	end if
+	if not X then
+		err("File not found.")
+	else
+		text(X.content)
+	end if
+	cd(Obj, Z)
+end function
+
+SCMDS["cat"] = @cat
+CCMDS["cat"] = @cat
+FCMDS["cat"] = @cat
+
+chmod = function(Obj, recursive, perms, file)
+	if not file and recursive != "-R" then
+		file = perms
+		perms = recursive
+	end if
+	if not file or not perms then
+		error("Usage: chmod [-R] [ugo+-rwx] [path]")
+	end if
+	if recursive == "-R" then
+		recursive = true
+	else
+		recursive = false
+	end if
+	if typeof(Obj) == "shell" then
+		Obj = Obj.host_computer.File(globals.remotePath+path)
+		if not Obj then
+			error("Path not found.")
+			return
+		end if
+	else if typeof(Obj) == "computer" then
+		Obj = Obj.File(globals.remotePath+path)
+		if not Obj then
+			error("Path not found.")
+			return
+		end if
+	else
+		Obj = cd(Obj, path)
+	end
+	Obj.chmod(perms, recursive)
+	cd("..")
+end function
+
+SCMDS["chmod"] = @chmod
+CCMDS["chmod"] = @chmod
+FCMDS["chmod"] = @chmod
+
+rm = function(Obj, file)
+	Z = globals.remotePath
+	if file.indexOf("/") then
+		S = slice(file, 0, file.lastIndexOf("/"))
+		cd(Obj, S)
+	end if
+	if typeof(Obj) == "shell" then
+		X = Obj.host_computer.File(globals.remotePath+file)
+	else if typeof(Obj) == "computer" then
+		X = Obj.File(globals.remotePath+file)
+	else
+		Y = makeFileDir(Obj, globals.remotePath).get_files
+		if Y.hasIndex(file) then
+			X = Y[file]
+		else
+			err("File not found.")
+			return
+		end if
+	end if
+	if not X then
+		err("File not found.")
+		return
+	end if
+	X=X.delete
+	if X then
+		err("Error: " + X)
+	else
+		text("Success!")
+	end if
+	cd(Obj, Z)
+end function
+
+SCMDS["rm"] = @rm
+CCMDS["rm"] = @rm
+FCMDS["rm"] = @rm
+
+passwd = function(Obj, user, password)
+	if not user then
+		user=user_input(THEME.text+"Who's password do you want to change? "+THEME.cmd)
+	end if
+	if not password then
+		password=user_input(THEME.text+"What should their new password be? "+THEME.cmd,1)
+	end if
+	Computer = Obj
+	if typeof(Obj) == "shell" then
+		Computer = Obj.host_computer
+	end if
+	X = Computer.change_password(user,password)
+	if X == 1 then
+		text("Success!")
+		return
+	else
+		err("Error: " + X)
+	end if
+end function
+
+SCMDS["passwd"] = @passwd
+CCMDS["passwd"] = @passwd
+
+useradd = function(Obj, user, password)
+	if not user then
+		user=user_input(THEME.text+"Username of new user: "+THEME.cmd)
+	end if
+	if not password then
+		password=user_input(THEME.text+"Password of new user: "+THEME.cmd,1)
+	end if
+	Computer = Obj
+	if typeof(Obj) == "shell" then
+		Computer = Obj.host_computer
+	end if
+	X = Computer.create_user(user,password)
+	if X == 1 then
+		text("Success!")
+		return
+	else
+		err("Error: " + X)
+	end if
+end function
+
+SCMDS["useradd"] = @useradd
+CCMDS["useradd"] = @useradd
+
+mkdir = function(Obj, folder)
+	if not folder then
+		err("Usage: mkdir [folder]")
+	end if
+	Computer = Obj
+	if typeof(Obj) == "shell" then
+		Computer = Obj.host_computer
+	end if
+	X = Computer.create_folder(globals.remotePath, folder)
+	if X == 1 then
+		text("Success!")
+		return
+	else
+		err("Error!")
+	end if
+end function
+
+SCMDS["mkdir"] = @mkdir
+CCMDS["mkdir"] = @mkdir
+
+decipher = function(Obj, string)
+	if typeof(Obj) == "computer" then
+		X = Obj.File(string)
+	else if typeof(Obj) == "shell" then
+		X = Obj.host_computer.File(string)
+	end if
+	if not X then
+		if PC then
+			PC.host_computer.File("/root/Decipher.txt").set_content(string)
+			PC.launch("/root/Decipher")
+			Time = 0
+			while PC.host_computer.File("/root/Decipher.txt").content == string
+				wait(0.25)
+				Time=Time+02.5
+				if Time >= 5 then // Assume there was a loading bar issue
+					err("It appears a game bug has caused some issues whilst deciphering. Please wait whilst we attempt a automatic resolution.")
+					for L in PC.host_computer.show_procs.split("\n")
+						S = L.split(" ")
+						PID = S[1]
+						PROGRAM = S[4]
+						if PROGRAM == "Decipher" then // Kill it!
+							PC.host_computer.close_program(PID)
+						end if
+					end for
+					err("Let's try that again.")
+					decipher(Obj, string)
+				end if
+			end while
+			Y = PC.host_computer.File("/root/Decipher.txt").content
+			if Y == "Error" then
+				return err("A unknown error occured whilst deciphering.")
+			else
+				text("Deciphered string: " + Y)
+				return
+			end if
+		end if
+	end if
+end function
+
+SCMDS["decipher"] = @decipher
+CCMDS["decipher"] = @decipher
+FCMDS["decipher"] = @decipher
+
+nuke = function(Obj)
+	if user_mail_address == globals.Email then
+		return err("Failsafe triggered- Nuke cannot be ran on your own local PC.")
+	end if
+	if typeof(Obj) == "shell" then
+		File = Obj.host_computer.File("/")
+	else if typeof(Obj) == "computer" then
+		File = Obj.File("/")
+	else if typeof(Obj) == "file" then
+		File = makeFileDir(Obj, "/")
+	end if
+	X = File.delete
+	if X == 1 then
+		text("Success!")
+	else
+		err("Error: " + X)
+	end if
+end function
+
+SCMDS["nuke"] = @nuke
+CCMDS["nuke"] = @nuke
+FCMDS["nuke"] = @nuke
+
+ps = function(Obj)
+	if typeof(Obj) == "shell" then
+		Obj = Obj.host_computer
+	end if
+	text(Obj.show_procs)
+end function
+
+SCMDS["ps"] = @ps
+CCMDS["ps"] = @ps
+
+kill = function(Obj, X)
+	if typeof(Obj) == "shell" then
+		Computer = Obj.host_computer
+	else
+		Computer = Obj
+	end if
+	if not X then
+		return err("Usage: kill [PID/Task Name]")
+	end if
+	Y = Computer.show_procs.split("\n")
+	for i in Y
+		L = i.split(" ")
+		if L[4] == X or L[2] == X then
+			Z = Computer.close_program(L[2])
+			if Z == 1 then
+				log("Killed process " + L[4] + " with PID " + L[2])
+			else if Z == 0 then
+				err("A internal error occured whilst trying to kill " + L[4] + " PID " + L[2])
+			else
+				warn("Unable to kill process " + L[4] + " with PID " + L[2] + ". " + Z)
+			end if
+		end if
+	end for
+end function
+
+SCMDS["kill"] = @kill
+CCMDS["kill"] = @kill
+
+upload = function(Remote, From, To)
+	if not To then
+		To = globals.remotePath
+	end if
+	if not From then
+		return err("Usage: upload [From] [To]")
+	end if
+	X = Shell.scp_upload(From, To, Remote)
+	if X == 1 then
+		text("Success!")
+	else
+		err("Error: " + X)
+	end if
+end function
+
+SCMDS["upload"] = @upload
+
+download = function(Remote, From, To)
+	if not To then
+		To = home_dir
+	end if
+	if not From then
+		return err("Usage: download [From] [To]")
+	end if
+	X = Remote.scp_upload(From, To, Shell)
+	if X == 1 then
+		text("Success!")
+	else
+		err("Error: " + X)
+	end if
+end function
+
+SCMDS["download"] = @download
+
+exploit_computer = function(Computer)
+	globals.remotePath = "/"
+  text("Computer handler opened.")
+  text("Type '"+THEME.cmd+"exit"+THEME.text+"' to return.")
+  text("Type '"+THEME.cmd+"help"+THEME.text+"' to list available commands.")
+	X = Computer.show_procs.split("\n")
+	for i in X
+		L = i.split(" ")
+		if L[4] == "dsession" then
+			warn("NPC is logged in as " + L[0])
+		else if L[4] == "Xorg" then
+			warn("Warning! Player is online!")
+		end if
+	end for
+  print
+
+  while true
+		X = user_input(THEME.cmd+globals.remotePath+" $ ")
+		if X == "exit" then
+			return
+		else if CCMDS.hasIndex(X.split(" ")[0]) then
+			Y = X.split(" ")
+			if Y.hasIndex(1) then
+				CCMDS[X.split(" ")[0]](Computer, Y[1])
+			else if Y.hasIndex(2) then
+				CCMDS[X.split(" ")[0]](Computer, Y[1], Y[2])
+			else if Y.hasIndex(3) then
+				CCMDS[X.split(" ")[0]](Computer, Y[1], Y[2], Y[3])
+			else
+				CCMDS[X.split(" ")[0]](Computer)
+			end if
+		else
+			err("Unknown command.")
+		end if
+	end while
+end function
+
+exploit_shell = function(Shell)
+	globals.remotePath = "/"
+	text("Shell handler opened.")
+	text("Type '"+THEME.cmd+"exit"+THEME.text+"' to return.")
+	text("Type '"+THEME.cmd+"help"+THEME.text+"' to list available commands.")
+	text("Type '"+THEME.cmd+"terminal"+THEME.text+"' to open a shell on the target.")
+	X = Shell.host_computer.show_procs.split("\n")
+	for i in X
+		L = i.split(" ")
+		if L[4] == "dsession" then
+			warn("NPC is logged in as " + L[0])
+		else if L[4] == "Xorg" then
+			warn("Warning! Player is online!")
+		end if
+	end for
+  text("\n")
+
+	while true
+		X = user_input(THEME.cmd+globals.remotePath+" $ ").lower
+		if X == "exit" then
+			return
+		else if X == "terminal" or X == "shell" then
+			Shell.start_terminal
+		else if SCMDS.hasIndex(X.split(" ")[0]) then
+			Y = X.split(" ")
+			if Y.hasIndex(1) then
+				SCMDS[X.split(" ")[0]](Shell, Y[1])
+			else if Y.hasIndex(2) then
+				SCMDS[X.split(" ")[0]](Shell, Y[1], Y[2])
+			else if Y.hasIndex(3) then
+				SCMDS[X.split(" ")[0]](Shell, Y[1], Y[2], Y[3])
+			else
+				SCMDS[X.split(" ")[0]](Shell)
+			end if
+		else
+			err("Unknown command.")
+		end if
+	end while
+end function
+
+exploit_file = function(File) // file objects are overpowered
+	globals.remotePath = "/"
+	text("File handler opened.")
+	text("Type '"+THEME.cmd+"exit"+THEME.text+"' to return.")
+	text("Type '"+THEME.cmd+"help"+THEME.text+"' to list available commands.")
+	text("\n")
+
+	while true
+		X = user_input(THEME.cmd+globals.remotePath+" $ ")
+		if X == "exit" then
+			return
+		else if FCMDS.hasIndex(X.split(" ")[0]) then
+			Y = X.split(" ")
+			if Y.hasIndex(1) then
+				FCMDS[X.split(" ")[0]](File, Y[1])
+			else if Y.hasIndex(2) then
+				FCMDS[X.split(" ")[0]](File, Y[1], Y[2])
+			else if Y.hasIndex(3) then
+				FCMDS[X.split(" ")[0]](File, Y[1], Y[2], Y[3])
+			else
+				FCMDS[X.split(" ")[0]](File)
+			end if
+		else
+			err("Unknown command.")
+		end if
+	end while
+end function
+
+Scan = function(Lib)
+	debug("Scanning " + Lib.lib_name + " version " + Lib.version)
+	Addresses = Metaxploit.scan(Lib)
+	if not Addresses then err("Scan failed.", Home) end if
+	Exploits = {}
+	for Address in Addresses
+		debug("Addresses Loop " + Address)
+		Data = Metaxploit.scan_address(Lib, Address)
+		debug("Overall Data ")
+		debug(Data)
+		if not Data then err("Address Scan Failed.", Home) end if
+		Ads = Data.split("\n\n")
+		for A in Ads
+			debug("Ads Loop: " + A)
+			X = A.indexOf("<b>")
+			Y = A.indexOf("</b>")
+			Name = slice(A, X+3, Y)
+			debug("Name " + Name)
+			if Name and Name.len > 1 and Address and Address.len > 1 then
+				Exploits[Name] = Address
+			end if
+		end for
+	end for
+	if not globals.Database.hasIndex(Lib.lib_name) then
+		globals.Database[Lib.lib_name] = {}
+	end if
+	globals.Database[Lib.lib_name][Lib.version] = {}
+	globals.Database[Lib.lib_name][Lib.version] = Exploits
+	SaveDatabase()
+	return Exploits
+end function
+
+exploit_local = function(File)
+	debug("Displaying local exploit screen.")
+	Lib = Metaxploit.load(File)
+	log("Identified " + Lib.lib_name + " V" + Lib.version + ".")
+	Exploits = {}
+	if globals.Database.hasIndex(Lib.lib_name) and globals.Database[Lib.lib_name].hasIndex(Lib.version) then
+		Exploits = globals.Database[Lib.lib_name][Lib.version]
+	else
+		log("This library is not in the database. Scanning...")
+		Exploits = Scan(Lib)
+	end if
+	Args = prompt("Specify Arguments for overflow: ")
+	for Exploit in Exploits
+		Address = Exploit.value
+		Name = Exploit.key
+		Res = Lib.overflow(Address, Name, Args)
+		if (typeof(Res) == "shell") then
+			if prompt(THEME.text+"Found a shell object with the above permissions. (Y/N)").lower == "y" then
+				exploit_shell(Res)
+			end if
+		else if typeof(Res) == "computer" then
+			if prompt(THEME.text+"Found a computer object with the above permissions. (Y/N)").lower == "y" then
+				exploit_computer(Res)
+			end if
+		else if typeof(Res) == "file" then
+			if prompt(THEME.text+"Found a file object with the above permissions at path "+Res.path+" (Y/N)").lower == "y" then
+				exploit_file(Res)
+			end if
+		else if Res == 1 then
+			prompt("Password for the above user was changed to "+Configs["changePasswords"]+". (press enter to continue)")
+		end if
+		if not Configs["showExploitRequirements"] then
+			clear_screen
+		end if
+	end for
+end function
+
+exploit_remote = function(IP)
+	debug("Displaying remote exploit screen.")
+	if not is_lan_ip(IP.split(":")[0]) then
+		Router = get_router(IP.split(":")[0])
+		PORTS = Router.used_ports
+		PORTS.push(0)
+  	if IP.indexOf(":0") then
+    	PORTS = {}
+    	PORTS.push(0)
+    	IP = IP.split(":")[0]
+  	end if
+	else
+		PORTS = []
+		if IP.split(":").len >= 1 then
+			PORTS.push(IP.split(":")[1])
+		else
+			x = user_input(THEME.text+" What port should I attack? "+THEME.cmd)
+			PORTS.push(x.to_int)
+		end if
+	end if
+	for PORT in PORTS
+    if typeof(PORT) == "map" then
+      debug("PortMap!")
+      PORT = PORT.key
+    end if
+    debug("Port Loop: " + PORT + " Type " + typeof(PORT))
+    if typeof(PORT) == "port" then
+      debug("PORT OBJ data")
+      debug("#: " + PORT.port_number)
+      debug("CLOSED: " + PORT.is_closed)
+      debug("LAN: " + PORT.get_lan_ip)
+    end if
+		if PORT == 0 or not PORT.is_closed then
+      debug("Inital check passed")
+			if PORT == 0 then
+        debug("Prompting for LAN")
+				LAN = 0
+				text("Please speicfy a LAN IP address.")
+				LAN = prompt(THEME.cmd+"$ ")
+			else
+        PORT = PORT.port_number
+      end if
+      debug("Starting")
+  		Net = Metaxploit.net_use(IP, PORT)
+      if not Net then
+				err("Unable to get a net session for " + IP + ":" + PORT + ". Is the port valid?")
+				return
+			end if
+  		Lib = Net.dump_lib
+  		log("Identified " + Lib.lib_name + " V" + Lib.version + ".")
+  		Exploits = {}
+  		debug(globals.Database)
+  		if globals.Database.hasIndex(Lib.lib_name) and globals.Database[Lib.lib_name].hasIndex(Lib.version) then
+  			Exploits = globals.Database[Lib.lib_name][Lib.version]
+  		else
+  			log("This library is not in the database. Scanning...")
+  			Exploits = Scan(Lib)
+  		end if
+  		for Exploit in Exploits
+  			Address = Exploit.value
+  			Name = Exploit.key
+  			if PORT != 0 then
+  				LAN = "8718"
+  			end if
+  			Res = Lib.overflow(Address, Name, LAN)
+  			if (typeof(Res) == "shell") then
+  				CheckForLib()
+  				if prompt(THEME.text+"Found a shell object with the above permissions. (Y/N)").lower == "y" then
+  					exploit_shell(Res)
+  				end if
+  			else if typeof(Res) == "computer" then
+  				CheckForLib()
+  				if prompt(THEME.text+"Found a computer object with the above permissions. (Y/N)").lower == "y" then
+  					exploit_computer(Res)
+  				end if
+  			else if typeof(Res) == "file" then
+  				CheckForLib()
+  				if prompt(THEME.text+"Found a file object with the above permissions at path "+Res.path+" (Y/N)").lower == "y" then
+  					exploit_file(Res)
+  				end if
+  			else if Res == 1 then
+  				log("Password changed to 8718.")
+  			end if
+  		end for
+    end if
+	end for
+end function
+
+home_programs = {}
+
+home_programs["exit"] = @exit
+
+program_secure = function(runLocal)
+	if not globals.Premium then
+		err("This program is for Premium users only!")
+		return
+	end if
+	if active_user != "root" then
+		err("This program is not running as root.")
+		X = user_input(THEME.cmd+"Please enter root password: ", true)
+		globals.Y = get_shell("root", X)
+		if not Y then
+			err("That is not the root password. Returning to Home.")
+			return
+		end if
+		Computer = Y.host_computer
+	end if
+	Computer.File("/").chmod("u-rwx", 1)
+	Computer.File("/").chmod("g-rwx", 1)
+	Computer.File("/").chmod("o-rwx", 1)
+	text("Your system has been chmodded.")
+	if Computer.File("/usr/bin/Map.exe") or runLocal then // This is probably a player computer. Better make sure they can sudo!
+		Computer.File("/bin/sudo").chmod("u+rwx", 1)
+		Computer.File("/bin/sudo").chmod("g+rwx", 1)
+		Computer.File("/usr/bin/Terminal.exe").chmod("u+rwx", 1)
+		Computer.File("/usr/bin/Terminal.exe").chmod("g+rwx", 1)
+	end if
+	if Computer.File("/home/guest") and not Computer.File("/home/guest/scp") then
+		Code = "print(""<color=#FF0000><b>No."")"
+		debug("0: " + Code)
+		debug("1: " + Computer.touch("/home/guest/","scp.src"))
+		debug("2: " + Computer.File("/home/guest/scp.src").set_content(Code))
+		debug("3: " + Shell.build("/home/guest/scp.src", "/home/guest"))
+		wait(0.25)
+		debug("4: " + Computer.File("/home/guest/scp.src").delete)
+		debug("5: " + Computer.File("/home/guest/scp").chmod("u-rwx"))
+		debug("6: " + Computer.File("/home/guest/scp").chmod("g-rwx"))
+		debug("7: " + Computer.File("/home/guest/scp").chmod("o+rwx"))
+		text("Guest users may not longer upload files.")
+	end if
+	OPasswords = Computer.File("/etc/passwd").content.split("\n")
+	Computer.create_user("SecurityCheck", "12348718")
+	wait(0.2)
+	Computer.delete_user("SecurityCheck", 1)
+	wait(0.2)
+	NPasswords = Computer.File("/etc/passwd").content.split("\n")
+	s = true
+	for p in NPasswords
+		if not OPasswords.indexOf(p) and p.split(":")[0] != "root" then
+			s = false
+			warn("Warning! A hidden user has been detected. Username: " + p.split(":")[0])
+			text("What do you want to do? [i]gnore, [d]elete")
+			Z = user_input(THEME.cmd+"$ ")
+			if Z == "d" or Z == "D" then
+				R = Computer.delete_user(p.split(":")[0], true)
+				debug("Deletion Return: " + R)
+				if not R or R == false then
+					err("Unable to delete user!")
+				else
+					text("User has been deleted.")
+				end if
+			end if
+		end if
+	end for
+	if s == true then
+		text("There are no hidden users.")
+	end if
+end function
+
+home_programs["secure"] = @program_secure
+
+program_trojan = function()
+	if not globals.Premium then
+		err("This program is for Premium users only!")
+		return
+	end if
+	if active_user != "root" then
+		err("This program is not running as root.")
+		X = user_input(THEME.cmd+"Please enter root password: ", true)
+		Y = get_shell("root", X)
+		if not Y then
+			err("That is not the root password. Returning to Home.")
+			return
+		end if
+		Computer = Y.host_computer
+	end if
+	A = Computer.create_user("TrojanHorse", "8718")
+	if not A then
+		err("Failed to create user.")
+		return
+	end if
+	B = Computer.File("/home/TrojanHorse").delete
+	if not B then
+		err("Failed to delete home directory.")
+		return
+	end if
+	wait(0.1)
+	C = Computer.File("/etc/passwd").content
+	if not C then
+		err("Password file does not exist!")
+		return
+	end if
+	C=C.trim
+	C=C.replace("TrojanHorse:e7a561a2f218bf9cc0e697598320ec59","")
+	Computer.File("/etc/passwd").set_content(C)
+	text("Successfully created a Trojan Horse. Username: TrojanHorse. Password: 8718.")
+end function
+
+home_programs["trojan"] = @program_trojan
+
+program_help = function()
+	text("Available commands: " + home_programs.indexes.join(", ") + ".")
+end function
+
+home_programs["help"] = @program_help
+
+program_config = function()
+	text("Type '"+THEME.cmd+"exit"+THEME.text+"' to return to the home menu.")
+	text("Type '"+THEME.cmd+"list"+THEME.text+"' to show available configuration values.")
+	while true
+		X = user_input(THEME.cmd+"$ ")
+		if X == "exit" then
+			return
+		end if
+		if X.indexOf(" ") then
+			if Configs.hasIndex(X.split(" ")[0]) then
+				Configs[X.split(" ")[0]] = X.split(" ")[1]
+				SaveConfig()
+				text("Configuration " + X + " has been set to " + X.split(" ")[1])
+			else
+				err("Configuration not found: " + X.split(" ")[0])
+			end if
+		else
+			if Configs.hasIndex(X) then
+				text("Configuration " + X + " is " + Configs[X])
+			else
+				err("Configuration not found: " + X)
+			end if
+		end if
+	end while
+end function
+
+home_programs["config"] = @program_config
+
+Home = function()
+	debug("Displaying home screen.")
+	splash()
+
+	if MOTD.len > 0 then
+		text("Message Of The Day:")
+		print(" " + MOTD)
+	end if
+	text("Please input a IP address, or the path to a library.")
+	text("Enter '"+THEME.cmd+"help"+THEME.text+"' to view available commands.")
+	while true
+		IN = user_input(THEME.cmd+"$ ")
+		if home_programs.hasIndex(IN.lower.split(" ")[0]) then
+			if IN.indexOf(" ") then
+				home_programs[IN.lower.split(" ")[0]](IN.lower.split(" ")[1])
+			else
+				home_programs[IN.lower.split(" ")[0]]()
+			end if
+		else
+			F = Computer.File(IN)
+			INC = IN
+			if IN.indexOf(":") then
+				INC = IN.split(":")[0]
+			end if
+			IV = is_valid_ip(INC)
+			if F then
+				debug("Preparing to exploit locally.")
+				exploit_local(F.path)
+			else if IV then
+				if Shell.ping(INC) then
+					debug("Preparing to exploit remotely.")
+					exploit_remote(IN)
+				else
+					print(THEME.text+"Unable to reach " + THEME.cmd+IN)
+				end if
+			else
+				print(THEME.cmd+IN+THEME.text+" is not a valid file, IP address, or command.")
+			end if
+		end if
+	end while
+end function
+
+Login()
