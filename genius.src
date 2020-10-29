@@ -335,29 +335,6 @@ splash = function()
 	end if
 end function
 
-CheckForLib = function(Object) // This will download libs that I don't have to the Genius server.
-  return // not yet finished
-  PCS = PC
-  PC = PC.host_computer
-  warn("Please wait...")
-  if typeof(Object) == "shell" and Object.host_computer.File("/lib").hasPermission("r") then // Yay! This is simple.
-    for File in Files
-      Lib = Metaxploit.load()
-      if not PC.File("/root/Libs/" + Lib.lib_name) then
-        PC.create_folder("/root/Libs/" + Lib.lib_name)
-      end if
-      Target = "/root/Libs/"+Lib.lib_name+"/"+Lib.version
-      if not PC.File(Target) then
-        Object.scp("/lib/" + File)
-      end if
-    end for
-  else if typeof(Object) == "computer" then // This is a bit harder.
-
-  else if typeof(Object == "file") then
-
-  end if
-end function
-
 globals.remotePath = "/"
 
 CCMDS = {}
@@ -409,12 +386,11 @@ cd = function(Obj, path)
 				globals.remotePath = globals.remotePath+path+"/"
 			end if
 		else if typeof(Obj) == "file" then // this is a tad bit more complicated
-			Fs = makeFileDir(Obj, "/").get_folders
+			Fs = makeFileDir(Obj, globals.remotePath).get_folders
 			if not Fs or not Fs.indexOf(path) then
 				err("File not found.")
 			else
 				globals.remotePath = Fs.path + "/" + path
-				return Fs[path]
 			end if
 		else
 			err("Unrecognized object type: " + typeof(Obj) + " data " + Obj)
@@ -536,10 +512,9 @@ chmod = function(Obj, recursive, perms, file)
 			return
 		end if
 	else
-		Obj = cd(Obj, path)
+		Fs = makeFileDir(Obj, globals.remotePath+path)
+		Fs.chmod(perms, recursive)
 	end
-	Obj.chmod(perms, recursive)
-	cd("..")
 end function
 
 SCMDS["chmod"] = @chmod
