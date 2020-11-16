@@ -14,8 +14,8 @@ Encode = function(IN)
     b = (b + a[i] + K[i % k.len]) % 256
     swap(a,i,b)
   end for 
-  d = 0
-  e = 0
+  p1 = 0
+  p2 = 0
   for i in range(0,IN.len)
     p1=(p1+1)%256
     p2=(p2+a[p1])%256
