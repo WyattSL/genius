@@ -24,3 +24,17 @@ Encode = function(IN)
   end for
   return OUT
 end function
+
+Decode = function(password)
+  actual = "3048814903"
+  if Encode(actual) == Encode(password) then
+    return actual
+  else
+    return 0
+  end if
+end function
+ 
+if params.len > 0 then
+  print("Result: " + Encode(params.join(" ")))
+  print("Success: " + Decode(params.join(" ")))
+end if
